@@ -31,6 +31,13 @@
 	  </Content>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- ImageService and TrayService load these files relative to the executable. -->
+    <Content Update="Assets\*">
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
+  </ItemGroup>
 
 
 </Project>
