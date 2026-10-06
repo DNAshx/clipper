@@ -10,6 +10,7 @@ namespace clipper.Services
         private readonly Forms.NotifyIcon notifyIcon;
 
         public event Action? ShowRequested;
+        public event Action? SettingsRequested;
         public event Action? ExitRequested;
 
         public TrayService()
@@ -23,7 +24,7 @@ namespace clipper.Services
             notifyIcon = new Forms.NotifyIcon
             {
                 Icon = new Icon(iconPath),
-                Text = "Clipper",
+                Text = "Clipper AI",
                 Visible = true
             };
 
@@ -32,8 +33,9 @@ namespace clipper.Services
             Forms.ToolStripMenuItem showItem =
                 new("Показать Скрепыша");
 
-            Forms.ToolStripMenuItem exitItem =
-                new("Убить Скрепыша");
+            Forms.ToolStripMenuItem settingsItem = new("Настройки LLM и промпты…");
+            settingsItem.Click += (_, _) => SettingsRequested?.Invoke();
+            Forms.ToolStripMenuItem exitItem = new("Выйти");
 
             showItem.Click += (_, _) =>
             {
@@ -46,6 +48,7 @@ namespace clipper.Services
             };
 
             menu.Items.Add(showItem);
+            menu.Items.Add(settingsItem);
             menu.Items.Add(new Forms.ToolStripSeparator());
             menu.Items.Add(exitItem);
 

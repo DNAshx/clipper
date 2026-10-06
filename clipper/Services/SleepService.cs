@@ -10,10 +10,8 @@ namespace clipper.Services
 
         private bool isSleeping;
 
-        // Для теста 20 секунд.
-        // Потом можно увеличить до 3–5 минут.
         private readonly TimeSpan sleepAfter =
-            TimeSpan.FromSeconds(20);
+            TimeSpan.FromMinutes(3);
 
         public event Action? FellAsleep;
         public event Action? WokeUp;

@@ -1,0 +1,28 @@
+name: Windows build and checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build
+        run: dotnet build clipper.slnx -c Release
+      - name: Check provider contracts, settings, and privacy
+        run: dotnet run --project tests/Clipper.Tests -c Release --no-build
+      - name: Publish Windows x64 application
+        run: dotnet publish clipper/clipper.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o artifacts/ClipperAI-win-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClipperAI-win-x64
+          path: artifacts/ClipperAI-win-x64/

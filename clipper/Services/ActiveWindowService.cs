@@ -32,10 +32,7 @@ namespace clipper.Services
 
         public static bool IsClipper(ActiveWindowInfo window)
         {
-            return window.ProcessName.Equals(
-                "clipper",
-                StringComparison.OrdinalIgnoreCase
-            );
+            return window.ProcessId == Environment.ProcessId;
         }
 
         public static ActiveWindowInfo GetActiveWindow()
@@ -54,7 +51,7 @@ namespace clipper.Services
 
                 GetWindowThreadProcessId(handle, out uint processId);
 
-                Process process = Process.GetProcessById((int)processId);
+                using Process process = Process.GetProcessById((int)processId);
 
                 string path = "";
 

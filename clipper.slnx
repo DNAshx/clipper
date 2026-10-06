@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="clipper/clipper.csproj" />
+  <Project Path="tests/Clipper.Tests/Clipper.Tests.csproj" />
 </Solution>
