@@ -7,15 +7,20 @@
     <UseWPF>true</UseWPF>
     <ApplicationIcon>Assets\original\clippy.ico</ApplicationIcon>
     <UseWindowsForms>true</UseWindowsForms>
+    <Version>0.1.0-beta.1</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>
     <None Remove="Assets\**\*;Archetypes\*.json" />
-    <Content Include="Assets\**\*">
+    <Content Include="Assets\**\*.png;Assets\**\*.ico" Exclude="Assets\**\references\**">
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
     <Content Include="Archetypes\*.json">
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>

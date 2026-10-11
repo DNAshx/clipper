@@ -125,3 +125,10 @@ dotnet run --project clipper/clipper.csproj
 ~~~
 
 Папки **Assets** и **Archetypes** автоматически копируются при сборке и публикации.
+
+## Бета-релиз
+
+Готовые сборки: [GitHub Releases](https://github.com/toxic8yte/clipper/releases).
+Первая бета: **v0.1.0-beta.1**. Архивы x64 и ARM64 включают .NET.
+Распакуйте весь ZIP и запустите `clipper.exe`, сохранив папки Assets и Archetypes рядом.
+Инструкция по совместимости и самостоятельной сборке: [clipper/RELEASE.md](clipper/RELEASE.md).
