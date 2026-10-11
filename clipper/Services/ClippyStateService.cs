@@ -1,4 +1,4 @@
-﻿namespace clipper.Services
+namespace clipper.Services
 {
     public enum ClippyState
     {
@@ -21,7 +21,7 @@
             CurrentState == ClippyState.Speaking;
 
         public bool CanReact =>
-            CurrentState != ClippyState.Sleeping;
+            CurrentState == ClippyState.Idle;
 
         public void SetIdle()
         {

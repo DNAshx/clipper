@@ -1,4 +1,4 @@
-﻿<Window x:Class="clipper.MainWindow"
+<Window x:Class="clipper.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Width="280"
@@ -40,31 +40,24 @@
                 TextAlignment="Center"/>
         </Border>
 
-        <Image
-            x:Name="ClippyImage"
-            Source="/Assets/clipper_original.png"
-            Width="240"
-            Height="260"
-            Stretch="Uniform"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Bottom"
-            RenderTransformOrigin="0.5,1">
-
-            <Image.RenderTransform>
+        <Viewbox Width="240" Height="260"
+                 Stretch="Uniform"
+                 HorizontalAlignment="Center"
+                 VerticalAlignment="Bottom"
+                 RenderTransformOrigin="0.5,1">
+            <Viewbox.RenderTransform>
                 <TransformGroup>
-                    <ScaleTransform x:Name="ClippyScale"
-                            ScaleX="1"
-                            ScaleY="1"/>
-
-                    <RotateTransform x:Name="ClippyRotate"
-                             Angle="0"/>
-
-                    <TranslateTransform x:Name="ClippyTranslate"
-                                Y="0"/>
+                    <ScaleTransform x:Name="ClippyScale" ScaleX="1" ScaleY="1"/>
+                    <RotateTransform x:Name="ClippyRotate" Angle="0"/>
+                    <TranslateTransform x:Name="ClippyTranslate" Y="0"/>
                 </TransformGroup>
-            </Image.RenderTransform>
-
-        </Image>
+            </Viewbox.RenderTransform>
+            <Grid x:Name="CharacterCanvas" Width="1254" Height="1254">
+                <!-- База закрывает края глаз; зрачки остаются внутри глазниц. -->
+                <Canvas x:Name="EyesCanvas" IsHitTestVisible="False"/>
+                <Image x:Name="ClippyImage" Stretch="Fill"/>
+            </Grid>
+        </Viewbox>
 
     </Grid>
 </Window>

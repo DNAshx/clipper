@@ -1,0 +1,36 @@
+{
+  "id": "default",
+  "displayName": "Скрепыш",
+  "behavior": {
+    "cooldownMultiplier": 1.0,
+    "clickOnly": false,
+    "wakeTriggers": []
+  },
+  "sprites": {
+    "idle": "original/original_base.png",
+    "blink": "original/original_blink.png",
+    "sleep": "original/original_sleep.png",
+    "base": "original/original_base.png",
+    "eyes": {
+      "maskBaseEyes": true,
+      "proceduralWhites": true,
+      "pupils": "original/original_base.png",
+      "blink": "original/original_blink.png",
+      "sleep": "original/original_sleep.png",
+      "left": {
+        "x": 395, "y": 254, "width": 143, "height": 139,
+        "pupilSize": 96, "maxPupilOffset": 14, "lidHeight": 139,
+        "pupils": { "x": 410, "y": 276, "width": 103, "height": 102 },
+        "blink": { "x": 395, "y": 254, "width": 143, "height": 139 },
+        "sleep": { "x": 392, "y": 253, "width": 145, "height": 139 }
+      },
+      "right": {
+        "x": 602, "y": 318, "width": 145, "height": 130,
+        "pupilSize": 94, "maxPupilOffset": 12, "lidHeight": 130,
+        "pupils": { "x": 620, "y": 335, "width": 102, "height": 103 },
+        "blink": { "x": 602, "y": 318, "width": 145, "height": 130 },
+        "sleep": { "x": 604, "y": 319, "width": 145, "height": 130 }
+      }
+    }
+  }
+}

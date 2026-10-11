@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.InteropServices;
 using System.Windows.Threading;
 
@@ -7,19 +7,19 @@ namespace clipper.Services
     public class SleepService
     {
         private readonly DispatcherTimer timer;
+        private readonly Func<TimeSpan> getIdleTime;
 
-        private bool isSleeping;
+        private bool idleTriggered;
 
-        // Для теста 20 секунд.
-        // Потом можно увеличить до 3–5 минут.
         private readonly TimeSpan sleepAfter =
             TimeSpan.FromSeconds(20);
 
-        public event Action? FellAsleep;
-        public event Action? WokeUp;
+        public event Action? IdleReached;
+        public event Action? ActivityDetected;
 
-        public SleepService()
+        public SleepService(Func<TimeSpan>? getIdleTime = null)
         {
+            this.getIdleTime = getIdleTime ?? GetIdleTime;
             timer = new DispatcherTimer
             {
                 Interval = TimeSpan.FromSeconds(1)
@@ -40,34 +40,51 @@ namespace clipper.Services
 
         private void Timer_Tick(object? sender, EventArgs e)
         {
-            TimeSpan idleTime = GetIdleTime();
+            TimeSpan idleTime = getIdleTime();
 
-            if (!isSleeping && idleTime >= sleepAfter)
+            if (!idleTriggered &&
+                idleTime >= sleepAfter)
             {
-                isSleeping = true;
-                FellAsleep?.Invoke();
+                idleTriggered = true;
+
+                IdleReached?.Invoke();
+
+                return;
             }
-            else if (isSleeping && idleTime < TimeSpan.FromSeconds(2))
+
+            if (idleTriggered &&
+                idleTime < TimeSpan.FromSeconds(2))
             {
-                isSleeping = false;
-                WokeUp?.Invoke();
+                // Повторяем проверку при активности, пока архетип не разрешит пробуждение.
+                ActivityDetected?.Invoke();
             }
+        }
+
+        public void ResetIdleCycle()
+        {
+            idleTriggered = false;
         }
 
         private static TimeSpan GetIdleTime()
         {
             LASTINPUTINFO info = new()
             {
-                cbSize = (uint)Marshal.SizeOf<LASTINPUTINFO>()
+                cbSize =
+                    (uint)Marshal.SizeOf<LASTINPUTINFO>()
             };
 
             if (!GetLastInputInfo(ref info))
                 return TimeSpan.Zero;
 
             uint idleMilliseconds =
-                unchecked((uint)Environment.TickCount - info.dwTime);
+                unchecked(
+                    (uint)Environment.TickCount -
+                    info.dwTime
+                );
 
-            return TimeSpan.FromMilliseconds(idleMilliseconds);
+            return TimeSpan.FromMilliseconds(
+                idleMilliseconds
+            );
         }
 
         [StructLayout(LayoutKind.Sequential)]

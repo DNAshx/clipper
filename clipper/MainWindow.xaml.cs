@@ -1,4 +1,4 @@
-﻿using clipper.Services;
+using clipper.Services;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -9,24 +9,26 @@ using ContextMenu = System.Windows.Controls.ContextMenu;
 using MenuItem = System.Windows.Controls.MenuItem;
 using Separator = System.Windows.Controls.Separator;
 
+
 namespace clipper
 {
     public partial class MainWindow : Window
     {
         private readonly DispatcherTimer appWatcherTimer;
+        private readonly DispatcherTimer speechTimer;
         private readonly AppReactionService reactionService;
-
+        private readonly ArchetypeService archetypeService;
         private readonly ClippyStateService stateService;
-
         private readonly TrayService trayService;
 
         private ActiveWindowInfo? lastExternalWindow;
 
         private readonly BlinkService blinkService;
+        private readonly CharacterSpriteService spriteService;
+        private readonly CursorTrackingService cursorTrackingService;
         private readonly SleepService sleepService;
 
         private string lastWindowSignature = "";
-
         private bool reallyExit = false;
 
         private readonly ReactionCooldownService cooldownService;
@@ -36,21 +38,27 @@ namespace clipper
             InitializeComponent();
 
             trayService = new TrayService();
+            archetypeService = new ArchetypeService("default");
 
             trayService.ShowRequested += ShowFromTray;
             trayService.ExitRequested += ExitFromTray;
 
             sleepService = new SleepService();
 
-            sleepService.FellAsleep += OnClippyFellAsleep;
-            sleepService.WokeUp += OnClippyWokeUp;
+            sleepService.IdleReached += OnClippyFellAsleep;
+            sleepService.ActivityDetected += OnUserActivityDetected;
+
             stateService = new ClippyStateService();
 
             reactionService = new AppReactionService();
 
             cooldownService = new ReactionCooldownService();
 
-            blinkService = new BlinkService(ClippyImage);
+
+            spriteService = new CharacterSpriteService(CharacterCanvas, EyesCanvas, ClippyImage);
+            spriteService.SetSprites(archetypeService.Current.Sprites);
+            blinkService = new BlinkService(spriteService.SetBlinking);
+            cursorTrackingService = new CursorTrackingService(CharacterCanvas, spriteService);
 
             appWatcherTimer = new DispatcherTimer
             {
@@ -58,6 +66,17 @@ namespace clipper
             };
 
             appWatcherTimer.Tick += AppWatcherTimer_Tick;
+
+            speechTimer = new DispatcherTimer
+            {
+                Interval = AnimationService.SpeechAnimationDuration
+            };
+            speechTimer.Tick += (_, _) =>
+            {
+                speechTimer.Stop();
+                if (stateService.CurrentState == ClippyState.Speaking)
+                    stateService.SetIdle();
+            };
         }
 
         private void Window_Loaded(object sender,  RoutedEventArgs e)
@@ -71,9 +90,9 @@ namespace clipper
 
             blinkService.Start();
             sleepService.Start();
+            cursorTrackingService.Start();
             appWatcherTimer.Start();
 
-            
         }
 
         private void ShowFromTray()
@@ -85,7 +104,6 @@ namespace clipper
             MoveToBottomRight();
         }
 
-   
         private void MoveToBottomRight()
         {
             var workArea = SystemParameters.WorkArea;
@@ -106,37 +124,78 @@ namespace clipper
             AnimationService.React(ClippyTranslate);
             AnimationService.AnimateSpeechBubble(SpeechBubble);
 
+            speechTimer.Stop();
+            speechTimer.Start();
+        }
+
+        private void OnUserActivityDetected()
+        {
+            if (!stateService.IsSleeping)
+                return;
+
+            ActiveWindowInfo window = ActiveWindowService.GetActiveWindow();
+
+            if (!archetypeService.CanWakeFor(window))
+                return;
+
+            WakeUp();
+        }
+        private void ChangeArchetype(string archetypeId)
+        {
+            archetypeService.Change(archetypeId);
+
+            var archetype = archetypeService.Current;
+
+            blinkService.Stop();
+            spriteService.SetSprites(archetype.Sprites);
+            blinkService.Start();
+
             stateService.SetIdle();
+            sleepService.ResetIdleCycle();
+            lastWindowSignature = "";
+            cooldownService.ResetAll();
+
+            Say($"Теперь я {archetype.DisplayName}.");
         }
 
         private void OnClippyFellAsleep()
         {
+            speechTimer.Stop();
             stateService.SetSleeping();
+
             blinkService.Stop();
 
-            ClippyImage.Source = ImageService.Load("clipper_sleep.png");
+            spriteService.SetSleeping(true);
 
-            SpeechText.Text = "Zzz...";
+            SpeechText.Text = "Хрррр...";
         }
-        private void OnClippyWokeUp()
+        private void WakeUp()
         {
+            sleepService.ResetIdleCycle();
             stateService.SetWakingUp();
-            ClippyImage.Source = ImageService.Load("clipper_original.png");
+
+            spriteService.SetSleeping(false);
 
             blinkService.Start();
 
-            Say("А? Я не спал.");
-        }
+            stateService.SetIdle();
 
+            if (archetypeService.CanSpeakAutomatically())
+                Say("А? Я не спал.");
+            else
+                SpeechText.Text = "";
+        }
         private void Window_Closed(object? sender,  EventArgs e)
         {
             blinkService.Stop();
             appWatcherTimer.Stop();
+            speechTimer.Stop();
             sleepService.Stop();
+            cursorTrackingService.Stop();
 
         }
 
-        private void Window_Closing(object? sender,  System.ComponentModel.CancelEventArgs e)
+        private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
             if (reallyExit)
                 return;
@@ -152,16 +211,16 @@ namespace clipper
 
             blinkService.Stop();
             sleepService.Stop();
+            cursorTrackingService.Stop();
             appWatcherTimer.Stop();
+            speechTimer.Stop();
 
             trayService.Dispose();
 
             Application.Current.Shutdown();
         }
 
-        private void Window_MouseLeftButtonDown(
-            object sender,
-            MouseButtonEventArgs e)
+        private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (e.LeftButton != MouseButtonState.Pressed)
                 return;
@@ -178,15 +237,26 @@ namespace clipper
 
         private void AppWatcherTimer_Tick(object? sender, EventArgs e)
         {
-            if (!stateService.CanReact)
-                return;
+            ActiveWindowInfo window =
+                ActiveWindowService.GetActiveWindow();
 
-            ActiveWindowInfo window = ActiveWindowService.GetActiveWindow();
-
+            // Clipper всегда продолжает наблюдать за внешним окном,
+            // даже если архетип молчит или спит.
             if (!ActiveWindowService.IsClipper(window))
             {
                 lastExternalWindow = window;
             }
+
+            // Пробуждение разрешает SleepService только после активности пользователя.
+            if (stateService.IsSleeping)
+                return;
+
+            // Например гот сам разговор не начинает.
+            if (!archetypeService.CanSpeakAutomatically())
+                return;
+
+            if (!stateService.CanReact)
+                return;
 
             string signature =
                 $"{window.ProcessId}|{window.Title}";
@@ -208,8 +278,15 @@ namespace clipper
                 _ => TimeSpan.FromSeconds(30)
             };
 
-            if (!cooldownService.CanReact(cooldownKey, cooldown))
+            cooldown =
+                archetypeService.ApplyCooldown(cooldown);
+
+            if (!cooldownService.CanReact(
+                    cooldownKey,
+                    cooldown))
+            {
                 return;
+            }
 
             string? phrase =
                 reactionService.TryGetReaction(window);
@@ -217,7 +294,9 @@ namespace clipper
             if (!string.IsNullOrWhiteSpace(phrase))
             {
                 Say(phrase);
-                cooldownService.MarkReacted(cooldownKey);
+
+                cooldownService.MarkReacted(
+                    cooldownKey);
             }
         }
 
@@ -251,7 +330,7 @@ namespace clipper
                 }
 
                 Say(
-                    $"{lastExternalWindow.ProcessName}\n" +
+                    $"{lastExternalWindow.ProcessName}\r\n" +
                     $"{lastExternalWindow.Title}"
                 );
             };
@@ -265,6 +344,56 @@ namespace clipper
             {
                 MoveToBottomRight();
             };
+
+            MenuItem archetypeMenu = new MenuItem
+            {
+                Header = "Персонаж"
+            };
+
+            MenuItem defaultItem = new MenuItem
+            {
+                Header = "Скрепыш"
+            };
+
+            defaultItem.Click += (_, _) =>
+            {
+                ChangeArchetype("default");
+            };
+
+            MenuItem gothItem = new MenuItem
+            {
+                Header = "Готичка"
+            };
+
+            gothItem.Click += (_, _) =>
+            {
+                ChangeArchetype("goth");
+            };
+
+            MenuItem gopnikItem = new MenuItem
+            {
+                Header = "Гопник"
+            };
+
+            gopnikItem.Click += (_, _) =>
+            {
+                ChangeArchetype("gopnique");
+            };
+
+            MenuItem metalcoreItem = new MenuItem
+            {
+                Header = "Металкорщик"
+            };
+
+            metalcoreItem.Click += (_, _) =>
+            {
+                ChangeArchetype("metalcore");
+            };
+
+            archetypeMenu.Items.Add(defaultItem);
+            archetypeMenu.Items.Add(gothItem);
+            archetypeMenu.Items.Add(gopnikItem);
+            archetypeMenu.Items.Add(metalcoreItem);
 
             MenuItem exitItem = new MenuItem
             {
@@ -289,8 +418,11 @@ namespace clipper
             menu.Items.Add(phraseItem);
             menu.Items.Add(currentWindowItem);
             menu.Items.Add(resetItem);
-            menu.Items.Add(hideItem);
             menu.Items.Add(new Separator());
+            menu.Items.Add(archetypeMenu);
+
+            menu.Items.Add(hideItem);
+
             menu.Items.Add(exitItem);
 
             menu.IsOpen = true;

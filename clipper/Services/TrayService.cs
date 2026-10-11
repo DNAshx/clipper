@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.IO;
 using Forms = System.Windows.Forms;
@@ -17,6 +17,7 @@ namespace clipper.Services
             string iconPath = Path.Combine(
                 AppContext.BaseDirectory,
                 "Assets",
+                "original",
                 "clippy.ico"
             );
 

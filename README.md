@@ -38,7 +38,7 @@
 - Возврат в правый нижний угол
 - Сворачивание в системный трей
 - Иконка приложения и трея
-- Self-contained публикация в один `.exe`
+- Четыре персонажа с независимыми глазами и слежением за курсором
 
 ## Пример поведения
 
@@ -62,35 +62,66 @@ qBittorrent:
 
 > Архивы научных трудов качаем?
 
+## Персонажи и глаза
+
+Персонаж выбирается через **ПКМ → Персонаж**:
+
+- **Скрепыш** — обычное поведение.
+- **Металкорщик** — просыпается при активности в FL Studio.
+- **Готичка** — говорит по запросу пользователя, просыпается молча.
+- **Гопник** — реагирует без дополнительного cooldown.
+
+База персонажа остаётся одной и той же при моргании и сне. Белки, зрачки и веки отрисовываются отдельно; зрачки следят за курсором и скрываются при закрытых глазах. Положение и контуры глаз описаны в JSON. Для картинок со встроенными глазами используется маска при отрисовке, исходные PNG сохраняются.
+
+Неиспользуемые исходники и варианты лежат в подпапках **references**.
+
 ## Структура проекта
 
-```text
-clipper
-├─ Assets
-│  ├─ clipper_original.png
-│  ├─ clipper_blink.png
-│  ├─ clipper_sleep.png
-│  └─ clippy.ico
-│
-├─ Data
+~~~text
+clipper/
+├─ Archetypes/
+│  ├─ default.json
+│  ├─ metalcore.json
+│  ├─ goth.json
+│  └─ gopnique.json
+├─ Assets/
+│  ├─ original/       # обычный Скрепыш и иконка
+│  ├─ metalcore/      # база, глаза, зрачки и веки
+│  ├─ goth/           # Готичка и исходные варианты
+│  └─ gopnique/       # Гопник и исходные варианты
+├─ Data/
 │  └─ ReactionLibrary.cs
-│
-├─ Models
-│  └─ AppReaction.cs
-│
-├─ Services
+├─ Models/
+│  ├─ AppReaction.cs
+│  ├─ ArchetypeDefinition.cs
+│  └─ EyeLayers.cs
+├─ Services/
 │  ├─ ActiveWindowService.cs
 │  ├─ AnimationService.cs
 │  ├─ AppReactionService.cs
+│  ├─ ArchetypeService.cs
 │  ├─ BlinkService.cs
+│  ├─ CharacterSpriteService.cs
 │  ├─ ClippyStateService.cs
+│  ├─ CursorTrackingService.cs
 │  ├─ ImageService.cs
 │  ├─ ReactionCooldownService.cs
 │  ├─ SleepService.cs
 │  └─ TrayService.cs
-│
 ├─ App.xaml
 ├─ App.xaml.cs
 ├─ MainWindow.xaml
 ├─ MainWindow.xaml.cs
 └─ clipper.csproj
+~~~
+
+## Сборка и запуск
+
+Нужны Windows и .NET 10 SDK. Из корня репозитория:
+
+~~~powershell
+dotnet build clipper.slnx
+dotnet run --project clipper/clipper.csproj
+~~~
+
+Папки **Assets** и **Archetypes** автоматически копируются при сборке и публикации.

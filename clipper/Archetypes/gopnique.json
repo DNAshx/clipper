@@ -1,0 +1,32 @@
+{
+  "id": "gopnique",
+  "displayName": "Гопник",
+  "behavior": {
+    "cooldownMultiplier": 0.0,
+    "clickOnly": false,
+    "wakeTriggers": []
+  },
+  "sprites": {
+    "idle": "gopnique/gopnique_base.png",
+    "blink": "gopnique/gopnique_base.png",
+    "sleep": "gopnique/gopnique_base.png",
+    "base": "gopnique/gopnique_base.png",
+    "eyes": {
+      "maskBaseEyes": true,
+      "proceduralWhites": true,
+      "proceduralPupils": true,
+      "proceduralLids": true,
+      "lidColor": "#85817A",
+      "left": {
+        "x": 435, "y": 320, "width": 166, "height": 111,
+        "pupilSize": 78, "maxPupilOffset": 14, "lidHeight": 111,
+        "aperture": "M 2,7 C 46,0 111,18 163,57 C 153,91 119,108 80,108 C 34,108 6,82 2,7 Z"
+      },
+      "right": {
+        "x": 654, "y": 383, "width": 164, "height": 115,
+        "pupilSize": 76, "maxPupilOffset": 14, "lidHeight": 115,
+        "aperture": "M 3,9 C 46,1 112,21 161,60 C 151,94 116,112 77,111 C 32,111 5,84 3,9 Z"
+      }
+    }
+  }
+}
