@@ -9,6 +9,7 @@ public sealed class ProviderSettings
 {
     public string ApiKey { get; set; } = "";
     public string Model { get; set; } = "";
+    public string WorkspaceId { get; set; } = "";
 }
 
 public sealed class LlmSettings
@@ -38,6 +39,7 @@ public sealed class LlmSettings
             if (!Providers.TryGetValue(provider, out var value) || value is null)
                 Providers[provider] = value = new();
             value.ApiKey ??= "";
+            value.WorkspaceId ??= "";
             if (string.IsNullOrWhiteSpace(value.Model)) value.Model = ModelCatalog.Recommended(provider);
         }
         if (string.IsNullOrWhiteSpace(Language)) Language = "Russian";

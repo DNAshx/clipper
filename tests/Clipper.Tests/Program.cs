@@ -21,12 +21,17 @@ internal static class Program
     {
         try
         {
+            if (args.Contains("--check-claude")) return CheckLiveClaude().GetAwaiter().GetResult();
             ProviderContracts().GetAwaiter().GetResult();
+            ClaudeWorkspaceRegression().GetAwaiter().GetResult();
+            ModelLists().GetAwaiter().GetResult();
+            WorkspaceAndBillingFailures().GetAwaiter().GetResult();
             ModelParameters().GetAwaiter().GetResult();
             FailureContracts().GetAwaiter().GetResult();
             PromptPrivacy();
             SettingsPersistence();
             SettingsUi(args.Contains("--render"));
+            ModelListUi();
             Console.WriteLine($"PASS: {passed} checks; no live API calls made.");
             return 0;
         }
@@ -42,6 +47,28 @@ internal static class Program
         if (!condition) throw new Exception("FAIL: " + label);
         passed++;
         Console.WriteLine("PASS: " + label);
+    }
+
+    // Explicit opt-in only: reads the current Windows user's encrypted settings and
+    // makes one short generation request. Credentials and generated content are never logged.
+    private static async Task<int> CheckLiveClaude()
+    {
+        var store = new SettingsStore();
+        var settings = store.Load();
+        if (store.LoadError != null) { Console.WriteLine(store.LoadError); return 1; }
+        settings.Provider = LlmProvider.Anthropic;
+        using var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false });
+        var service = new LlmService(client);
+        try
+        {
+            var models = await service.ListModelsAsync(settings);
+            Console.WriteLine($"Claude models loaded: {models.Length}");
+            Console.WriteLine($"Claude workspace selected: {!string.IsNullOrWhiteSpace(settings.ActiveProvider.WorkspaceId)}");
+            string text = await service.GenerateAsync(settings, "Reply briefly in one sentence.", "Say hello.");
+            Console.WriteLine($"Claude generated speech: {!string.IsNullOrWhiteSpace(text)}");
+            return 0;
+        }
+        catch (LlmException ex) { Console.WriteLine(ex.Message); return 1; }
     }
 
     private static LlmSettings Configured(LlmProvider provider = LlmProvider.OpenAI)
@@ -145,6 +172,23 @@ internal static class Program
             "Speech bubble length bounded");
     }
 
+    private static async Task ClaudeWorkspaceRegression()
+    {
+        int attempts = 0;
+        using var client = new HttpClient(new FakeHandler((request, _) =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/v1/organizations/workspaces")
+                return Task.FromResult(Response("""{"data":[{"id":"wrkspc_test","name":"Default","archived_at":null}],"has_more":false}"""));
+            attempts++;
+            if (!request.Headers.Contains("anthropic-workspace-id"))
+                return Task.FromResult(Response("""{"error":{"type":"invalid_request_error","message":"This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header with the ID of the workspace to use."}}""", HttpStatusCode.BadRequest));
+            Check(request.Headers.GetValues("anthropic-workspace-id").Single() == "wrkspc_test", "Claude uses the only available workspace");
+            return Task.FromResult(Response("""{"content":[{"type":"text","text":"Hello paperclip"}]}"""));
+        }));
+        string text = await new LlmService(client).GenerateAsync(Configured(LlmProvider.Anthropic), "s", "u");
+        Check(text == "Hello paperclip" && attempts == 2, "Unscoped Claude key connects after workspace resolution");
+    }
+
     private static async Task ModelParameters()
     {
         foreach (var provider in new[] { LlmProvider.OpenAI, LlmProvider.Gemini })
@@ -177,6 +221,147 @@ internal static class Program
         }
     }
 
+    private static async Task ModelLists()
+    {
+        foreach (var provider in Enum.GetValues<LlmProvider>())
+        {
+            int page = 0;
+            using var client = new HttpClient(new FakeHandler((request, _) =>
+            {
+                page++;
+                Check(request.Method == HttpMethod.Get && request.Content == null, provider + " loads models without generation");
+                switch (provider)
+                {
+                    case LlmProvider.OpenAI:
+                        Check(request.RequestUri!.AbsoluteUri == "https://api.openai.com/v1/models"
+                            && request.Headers.Authorization?.Parameter == "test-secret-never-real", "OpenAI catalog authentication");
+                        return Task.FromResult(Response("""{"data":[{"id":"gpt-text"},{"id":"gpt-text"},{"id":"gpt-audio"},{"id":"text-embedding-3-small"},{"id":"gpt-image-1"}]}"""));
+                    case LlmProvider.Anthropic:
+                        Check(request.Headers.GetValues("anthropic-workspace-id").Single() == "wrkspc_test", "Claude catalog workspace header");
+                        if (page == 1) return Task.FromResult(Response("""{"data":[{"id":"claude-first"}],"has_more":true,"last_id":"cursor/next"}"""));
+                        Check(request.RequestUri!.Query.Contains("after_id=cursor%2Fnext"), "Claude catalog pagination cursor encoded");
+                        return Task.FromResult(Response("""{"data":[{"id":"claude-second"},{"id":"claude-first"}],"has_more":false}"""));
+                    default:
+                        Check(request.Headers.GetValues("x-goog-api-key").Single() == "test-secret-never-real"
+                            && !request.RequestUri!.Query.Contains("key="), "Gemini catalog key stays out of URL");
+                        if (page == 1) return Task.FromResult(Response("""{"models":[{"name":"models/gemini-first","supportedGenerationMethods":["generateContent"]},{"name":"models/gemini-image","supportedGenerationMethods":["generateContent"]},{"name":"models/gemini-embedding","supportedGenerationMethods":["embedContent"]}],"nextPageToken":"page/2"}"""));
+                        Check(request.RequestUri!.Query.Contains("pageToken=page%2F2"), "Gemini catalog pagination cursor encoded");
+                        return Task.FromResult(Response("""{"models":[{"name":"models/gemini-second","supportedGenerationMethods":["generateContent"]}]}"""));
+                }
+            }));
+            var settings = Configured(provider);
+            settings.ActiveProvider.Model = "";
+            settings.ActiveProvider.WorkspaceId = "wrkspc_test";
+            var models = await new LlmService(client).ListModelsAsync(settings);
+            Check(models.Length == (provider == LlmProvider.OpenAI ? 1 : 2), provider + " text models filtered and deduplicated");
+            Check(models.All(id => !id.StartsWith("models/")), "Catalog returns usable API IDs");
+        }
+        using var invalidClient = new HttpClient(new FakeHandler((_, _) => throw new Exception("Must not call API")));
+        try
+        {
+            await new LlmService(invalidClient).ListModelsAsync(new());
+            throw new Exception("Expected missing key error");
+        }
+        catch (LlmException) { Check(true, "Catalog makes no request without a key"); }
+        foreach (string invalid in new[] { "{}", "[]", "{\"data\":{}}", "not-json" })
+        {
+            using var client = new HttpClient(new FakeHandler((_, _) => Task.FromResult(Response(invalid))));
+            try
+            {
+                await new LlmService(client).ListModelsAsync(Configured());
+                throw new Exception("Expected malformed catalog error");
+            }
+            catch (LlmException) { Check(true, "Malformed catalog gives an actionable error"); }
+        }
+        using var repeatedClient = new HttpClient(new FakeHandler((_, _) => Task.FromResult(Response("""{"data":[],"has_more":true,"last_id":"same"}"""))));
+        try
+        {
+            await new LlmService(repeatedClient).ListModelsAsync(Configured(LlmProvider.Anthropic));
+            throw new Exception("Expected repeated page error");
+        }
+        catch (LlmException) { Check(true, "Repeated catalog page cannot loop forever"); }
+        using var cancelledClient = new HttpClient(new FakeHandler(async (_, token) =>
+        {
+            await Task.Delay(5000, token);
+            return Response("{}");
+        }));
+        using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+        try
+        {
+            await new LlmService(cancelledClient).ListModelsAsync(Configured(), cancel.Token);
+            throw new Exception("Expected catalog cancellation");
+        }
+        catch (OperationCanceledException) { Check(true, "Catalog cancellation propagates"); }
+    }
+
+    private static async Task WorkspaceAndBillingFailures()
+    {
+        foreach (string workspaces in new[]
+        {
+            """{"data":[{"id":"wrkspc_a"},{"id":"wrkspc_b"}],"has_more":false}""",
+            """{"data":[{"id":"wrkspc_a"}],"has_more":true}""",
+            """{"data":[],"has_more":false}"""
+        })
+        {
+            int attempts = 0;
+            using var client = new HttpClient(new FakeHandler((request, _) =>
+            {
+                if (request.RequestUri!.AbsolutePath.EndsWith("workspaces")) return Task.FromResult(Response(workspaces));
+                attempts++;
+                return Task.FromResult(Response("""{"error":{"type":"invalid_request_error","message":"Include the anthropic-workspace-id header"}}""", HttpStatusCode.BadRequest));
+            }));
+            try
+            {
+                await new LlmService(client).ListModelsAsync(Configured(LlmProvider.Anthropic));
+                throw new Exception("Must not guess workspace");
+            }
+            catch (LlmException ex) { Check(ex.Code == "workspace_required" && attempts == 1, "Ambiguous workspace requires explicit selection"); }
+        }
+        using var billingClient = new HttpClient(new FakeHandler((_, _) => Task.FromResult(Response(
+            """{"error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. test-secret-never-real"}}""", HttpStatusCode.BadRequest))));
+        try
+        {
+            await new LlmService(billingClient).GenerateAsync(Configured(LlmProvider.Anthropic), "s", "u");
+            throw new Exception("Expected billing error");
+        }
+        catch (LlmException ex)
+        {
+            Check(ex.Code == "billing" && ex.Message.Contains("баланс") && !ex.Message.Contains("test-secret"),
+                "Claude low balance is reported as billing, without leaking provider content");
+        }
+    }
+
+    private static void ModelListUi()
+    {
+        using var client = new HttpClient(new FakeHandler((_, _) => Task.FromResult(Response("""{"data":[{"id":"gpt-new"}]}"""))));
+        var settings = Configured();
+        settings.ActiveProvider.Model = "custom-choice";
+        var window = new SettingsWindow(settings, new SettingsStore(), new LlmService(client));
+        var method = typeof(SettingsWindow).GetMethod("RefreshModelsAsync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        ((Task)method.Invoke(window, [CancellationToken.None])!).GetAwaiter().GetResult();
+        var model = (ComboBox)window.FindName("ModelBox");
+        Check(model.Items.Cast<string>().Contains("gpt-new") && ModelCatalog.For(LlmProvider.OpenAI).All(id => model.Items.Contains(id)),
+            "UI adds remote models and retains every built-in model");
+        Check(model.Text == "custom-choice", "Catalog refresh preserves custom model selection");
+        window.Close();
+        using var failingClient = new HttpClient(new FakeHandler((_, _) => Task.FromResult(Response("{}", HttpStatusCode.Unauthorized))));
+        var failing = new SettingsWindow(Configured(), new SettingsStore(), new LlmService(failingClient));
+        ((Task)method.Invoke(failing, [CancellationToken.None])!).GetAwaiter().GetResult();
+        Check(((ComboBox)failing.FindName("ModelBox")).Items.Cast<string>().SequenceEqual(ModelCatalog.For(LlmProvider.OpenAI))
+            && ((TextBlock)failing.FindName("ModelsStatusText")).Text.Contains("встроенный"), "Catalog failure keeps built-in fallback and explains the error");
+        failing.Close();
+        var pending = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var delayedClient = new HttpClient(new FakeHandler((_, _) => pending.Task));
+        var delayed = new SettingsWindow(Configured(), new SettingsStore(), new LlmService(delayedClient));
+        var oldRefresh = (Task)method.Invoke(delayed, [CancellationToken.None])!;
+        ((ComboBox)delayed.FindName("ProviderBox")).SelectedItem = LlmProvider.Gemini;
+        pending.SetResult(Response("""{"data":[{"id":"gpt-old-request"}]}"""));
+        oldRefresh.GetAwaiter().GetResult();
+        Check(((ComboBox)delayed.FindName("ModelBox")).Items.Cast<string>().SequenceEqual(ModelCatalog.For(LlmProvider.Gemini)),
+            "Delayed catalog response cannot overwrite a different provider");
+        delayed.Close();
+    }
+
     private static void PromptPrivacy()
     {
         var settings = Configured();
@@ -200,12 +385,14 @@ internal static class Program
             var store = new SettingsStore(path);
             var settings = Configured();
             settings.Providers[LlmProvider.Gemini].ApiKey = "another-fake-secret";
+            settings.Providers[LlmProvider.Anthropic].WorkspaceId = "wrkspc_saved";
             settings.Prompts[SpeechEvent.Poked] = "Custom click prompt";
             store.Save(settings);
             Check(!Encoding.UTF8.GetString(File.ReadAllBytes(path)).Contains("test-secret"), "DPAPI file contains no plaintext key");
             var restored = store.Load();
             Check(restored.ActiveProvider.ApiKey == settings.ActiveProvider.ApiKey
                 && restored.Providers[LlmProvider.Gemini].ApiKey == "another-fake-secret"
+                && restored.Providers[LlmProvider.Anthropic].WorkspaceId == "wrkspc_saved"
                 && restored.Prompts[SpeechEvent.Poked] == "Custom click prompt", "Keys and custom prompts survive encrypted reload");
             File.WriteAllText(path, "corrupt");
             Check(!store.Load().IsConfigured && store.LoadError != null, "Corrupt settings recover with actionable status");

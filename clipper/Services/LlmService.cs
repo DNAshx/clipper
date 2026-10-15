@@ -1,16 +1,17 @@
 using clipper.Models;
-using System.Net;
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace clipper.Services;
 
-public sealed class LlmException(string message) : Exception(message);
+public sealed class LlmException(string message, string? code = null) : Exception(message)
+{
+    public string? Code { get; } = code;
+}
 
-public sealed class LlmService(HttpClient client)
+public sealed partial class LlmService(HttpClient client)
 {
     public async Task<string> GenerateAsync(LlmSettings settings, string system, string user,
         CancellationToken cancellationToken = default)
@@ -18,21 +19,9 @@ public sealed class LlmService(HttpClient client)
         if (!settings.IsConfigured)
             throw new LlmException("Добавьте API-ключ в настройках LLM.");
 
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(25));
-        using var request = CreateRequest(settings, system, user);
         try
         {
-            using var response = await client.SendAsync(request, timeout.Token);
-            if (!response.IsSuccessStatusCode)
-                throw new LlmException(response.StatusCode switch
-                {
-                    HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => "Проверьте API-ключ и доступ к модели в настройках LLM.",
-                    HttpStatusCode.TooManyRequests => "Лимит API: проверьте квоту или повторите позже.",
-                    HttpStatusCode.BadRequest or HttpStatusCode.NotFound => "Модель или запрос недоступны. Проверьте ID модели в настройках LLM.",
-                    _ => $"Сервис LLM временно недоступен (HTTP {(int)response.StatusCode})."
-                });
-            using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
+            using var json = await SendJsonAsync(settings, () => CreateRequest(settings, system, user), cancellationToken);
             string text = ParseText(settings.Provider, json.RootElement);
             if (string.IsNullOrWhiteSpace(text))
                 throw new LlmException("Модель не вернула текст. Попробуйте другую модель или промпт.");
@@ -44,10 +33,6 @@ public sealed class LlmService(HttpClient client)
             }
             return text;
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        { throw new LlmException("LLM не ответила за 25 секунд. Повторите позже."); }
-        catch (HttpRequestException)
-        { throw new LlmException("Не удалось подключиться к LLM. Проверьте интернет."); }
         catch (JsonException)
         { throw new LlmException("Сервис LLM вернул некорректный ответ."); }
         catch (InvalidOperationException)
@@ -72,7 +57,6 @@ public sealed class LlmService(HttpClient client)
                 else if (provider.Model == "gpt-6-astra")
                     body["reasoning"] = new { effort = "low" };
                 request = new(HttpMethod.Post, "https://api.openai.com/v1/responses") { Content = JsonContent.Create(body) };
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", provider.ApiKey.Trim());
                 break;
             case LlmProvider.Anthropic:
                 request = new(HttpMethod.Post, "https://api.anthropic.com/v1/messages")
@@ -80,8 +64,6 @@ public sealed class LlmService(HttpClient client)
                     Content = JsonContent.Create(new { model = provider.Model, system, max_tokens = 256,
                         messages = new[] { new { role = "user", content = user } } })
                 };
-                request.Headers.Add("x-api-key", provider.ApiKey.Trim());
-                request.Headers.Add("anthropic-version", "2023-06-01");
                 break;
             case LlmProvider.Gemini:
                 var config = new Dictionary<string, object>
@@ -102,10 +84,10 @@ public sealed class LlmService(HttpClient client)
                         generationConfig = config
                     })
                 };
-                request.Headers.Add("x-goog-api-key", provider.ApiKey.Trim());
                 break;
             default: throw new LlmException("Выберите провайдера LLM в настройках.");
         }
+        AddAuthentication(request, settings);
         return request;
     }
 

@@ -16,6 +16,8 @@ public partial class SettingsWindow : Window
     private readonly Dictionary<SpeechEvent, TextBox> promptBoxes = new();
     private LlmProvider? displayedProvider;
     private bool loadingProvider;
+    private bool windowLoaded;
+    private CancellationTokenSource? modelRefresh;
     private readonly CancellationTokenSource lifetime = new();
 
     public LlmSettings? SavedSettings { get; private set; }
@@ -46,7 +48,16 @@ public partial class SettingsWindow : Window
         AutomaticBox.IsChecked = draft.AutomaticReactions;
         ProviderBox.ItemsSource = Enum.GetValues<LlmProvider>();
         ProviderBox.SelectedItem = draft.Provider;
-        Closed += (_, _) => lifetime.Cancel();
+        Loaded += (_, _) =>
+        {
+            windowLoaded = true;
+            ScheduleModelRefresh(immediate: true);
+        };
+        Closed += (_, _) =>
+        {
+            lifetime.Cancel();
+            modelRefresh?.Cancel();
+        };
     }
 
     private void CaptureProvider()
@@ -54,6 +65,7 @@ public partial class SettingsWindow : Window
         if (displayedProvider is not { } provider) return;
         draft.Providers[provider].ApiKey = KeyBox.Password.Trim();
         draft.Providers[provider].Model = ModelBox.Text.Trim();
+        if (provider == LlmProvider.Anthropic) draft.Providers[provider].WorkspaceId = WorkspaceBox.Text.Trim();
     }
 
     private void Provider_Changed(object sender, SelectionChangedEventArgs e)
@@ -64,16 +76,91 @@ public partial class SettingsWindow : Window
         draft.Provider = provider;
         loadingProvider = true;
         KeyBox.Password = draft.Providers[provider].ApiKey;
+        WorkspacePanel.Visibility = provider == LlmProvider.Anthropic ? Visibility.Visible : Visibility.Collapsed;
+        WorkspaceBox.Text = draft.Providers[provider].WorkspaceId;
         ModelBox.ItemsSource = ModelCatalog.For(provider);
         ModelBox.Text = draft.Providers[provider].Model;
         RecommendationText.Text = $"Рекомендуется {ModelCatalog.Recommended(provider)} — компактная модель для быстрых коротких реплик.";
         loadingProvider = false;
         StatusText.Text = "";
+        ScheduleModelRefresh(immediate: true);
     }
 
     private void Key_Changed(object sender, RoutedEventArgs e)
     {
-        if (!loadingProvider && StatusText != null) StatusText.Text = "";
+        if (loadingProvider || StatusText == null) return;
+        StatusText.Text = "";
+        ScheduleModelRefresh();
+    }
+
+    private void Workspace_Changed(object sender, TextChangedEventArgs e)
+    {
+        if (!loadingProvider && ModelsStatusText != null) ScheduleModelRefresh();
+    }
+
+    private void RefreshModels_Click(object sender, RoutedEventArgs e) => ScheduleModelRefresh(immediate: true);
+
+    private void UseBuiltInModels()
+    {
+        string selected = ModelBox.Text;
+        ModelBox.ItemsSource = ModelCatalog.For(draft.Provider);
+        ModelBox.Text = selected;
+    }
+
+    private async void ScheduleModelRefresh(bool immediate = false)
+    {
+        modelRefresh?.Cancel();
+        if (!windowLoaded || loadingProvider) return;
+        var request = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        modelRefresh = request;
+        UseBuiltInModels();
+        ModelsStatusText.Text = "Встроенный список моделей. Подключите ключ для загрузки из API.";
+        RefreshModelsButton.IsEnabled = !string.IsNullOrWhiteSpace(KeyBox.Password);
+        try
+        {
+            if (string.IsNullOrWhiteSpace(KeyBox.Password)) return;
+            if (!immediate) await Task.Delay(700, request.Token);
+            await RefreshModelsAsync(request.Token);
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            if (modelRefresh == request) modelRefresh = null;
+            request.Dispose();
+        }
+    }
+
+    private async Task RefreshModelsAsync(CancellationToken cancellationToken)
+    {
+        CaptureProvider();
+        var snapshot = SettingsStore.Copy(draft);
+        ModelsStatusText.Text = "Загрузка моделей…";
+        try
+        {
+            var models = await llm.ListModelsAsync(snapshot, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            // Key/provider edits cancel this operation. Never apply their older response.
+            if (snapshot.Provider != draft.Provider || snapshot.ActiveProvider.ApiKey != KeyBox.Password.Trim()
+                || (snapshot.Provider == LlmProvider.Anthropic && draft.ActiveProvider.WorkspaceId != WorkspaceBox.Text.Trim())) return;
+            string selected = ModelBox.Text;
+            ModelBox.ItemsSource = ModelCatalog.For(draft.Provider).Concat(models).Distinct(StringComparer.Ordinal).ToArray();
+            ModelBox.Text = selected;
+            if (snapshot.Provider == LlmProvider.Anthropic && string.IsNullOrWhiteSpace(WorkspaceBox.Text))
+            {
+                loadingProvider = true;
+                WorkspaceBox.Text = snapshot.ActiveProvider.WorkspaceId;
+                draft.ActiveProvider.WorkspaceId = snapshot.ActiveProvider.WorkspaceId;
+                loadingProvider = false;
+            }
+            ModelsStatusText.Text = models.Length > 0
+                ? $"Из API загружено моделей: {models.Length}. Встроенный список сохранён."
+                : "API не вернул подходящих текстовых моделей. Используется встроенный список.";
+        }
+        catch (LlmException ex)
+        {
+            if (!cancellationToken.IsCancellationRequested)
+                ModelsStatusText.Text = ex.Message + " Используется встроенный список моделей.";
+        }
     }
 
     private void Recommended_Click(object sender, RoutedEventArgs e) =>
@@ -119,9 +206,15 @@ public partial class SettingsWindow : Window
             StatusText.Text = "Укажите модель, язык и заполните все промпты.";
             return false;
         }
-        if (draft.ActiveProvider.ApiKey.Any(char.IsControl))
+        if (draft.ActiveProvider.ApiKey.Any(c => c <= 32 || c > 126))
         {
             StatusText.Text = "API-ключ содержит недопустимые символы.";
+            return false;
+        }
+        if (draft.Provider == LlmProvider.Anthropic
+            && draft.ActiveProvider.WorkspaceId.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '_' && c != '-'))
+        {
+            StatusText.Text = "Workspace ID содержит недопустимые символы.";
             return false;
         }
         return true;
@@ -137,9 +230,24 @@ public partial class SettingsWindow : Window
         {
             var prompt = PromptLibrary.Build(snapshot, SpeechEvent.Greeting);
             string text = await llm.GenerateAsync(snapshot, prompt.System, prompt.User, lifetime.Token);
-            StatusText.Text = "Подключение работает: " + text;
+            if (snapshot.Provider == draft.Provider && snapshot.ActiveProvider.ApiKey == KeyBox.Password.Trim())
+            {
+                StatusText.Text = "Подключение работает: " + text;
+                if (snapshot.Provider == LlmProvider.Anthropic && string.IsNullOrWhiteSpace(WorkspaceBox.Text))
+                {
+                    loadingProvider = true;
+                    WorkspaceBox.Text = snapshot.ActiveProvider.WorkspaceId;
+                    loadingProvider = false;
+                    draft.ActiveProvider.WorkspaceId = snapshot.ActiveProvider.WorkspaceId;
+                }
+                ScheduleModelRefresh(immediate: true);
+            }
         }
-        catch (LlmException ex) { StatusText.Text = ex.Message; }
+        catch (LlmException ex)
+        {
+            if (snapshot.Provider == draft.Provider && snapshot.ActiveProvider.ApiKey == KeyBox.Password.Trim())
+                StatusText.Text = ex.Message;
+        }
         catch (OperationCanceledException) { }
         finally { TestButton.IsEnabled = true; }
     }

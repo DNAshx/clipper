@@ -40,10 +40,21 @@
                             <Button Content="Получить API-ключ ↗" Click="OpenKeyPage_Click"/>
                             <Button Content="Удалить ключ" Click="RemoveKey_Click"/>
                         </WrapPanel>
+                        <StackPanel x:Name="WorkspacePanel" Visibility="Collapsed">
+                            <TextBlock Text="Claude Workspace ID (необязательно)"/>
+                            <TextBox x:Name="WorkspaceBox" TextChanged="Workspace_Changed" MaxLength="128"/>
+                            <TextBlock Text="Для ключа организации единственный workspace определится автоматически. Если их несколько, укажите ID из Claude Console."
+                                       TextWrapping="Wrap" Foreground="#555" Margin="0,0,0,12"/>
+                        </StackPanel>
                         <TextBlock Text="Модель (можно ввести собственный ID)"/>
                         <ComboBox x:Name="ModelBox" IsEditable="True"/>
+                        <TextBlock x:Name="ModelsStatusText" Text="Встроенный список моделей. Подключите ключ для загрузки из API."
+                                   TextWrapping="Wrap" Foreground="#555" Margin="0,0,0,8"/>
                         <TextBlock x:Name="RecommendationText" TextWrapping="Wrap" Foreground="#555" Margin="0,0,0,8"/>
-                        <Button Content="Выбрать рекомендуемую" Click="Recommended_Click" HorizontalAlignment="Left" Margin="0,0,0,16"/>
+                        <WrapPanel Margin="0,0,0,16">
+                            <Button Content="Выбрать рекомендуемую" Click="Recommended_Click"/>
+                            <Button x:Name="RefreshModelsButton" Content="Обновить модели" Click="RefreshModels_Click"/>
+                        </WrapPanel>
                         <TextBlock Text="Язык реплик"/>
                         <ComboBox x:Name="LanguageBox" IsEditable="True">
                             <ComboBoxItem Content="Russian"/>
