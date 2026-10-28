@@ -500,7 +500,7 @@ internal static class Program
         archetypes.Change("gopnique");
         Check(archetypes.ApplyCooldown(TimeSpan.FromMinutes(2)) == TimeSpan.Zero, "Gopnique retains its cooldown multiplier");
         var legacy = Configured();
-        legacy.SystemPrompt = PromptLibrary.LegacySystemPrompt.Replace("\n", "\r\n");
+        legacy.SystemPrompt = PromptLibrary.LegacySystemPrompt.Replace("\r\n", "\n").Replace("\n", "\r\n");
         legacy.Prompts = new(PromptLibrary.LegacyEvents);
         legacy.CharacterPrompts = new();
         legacy.Normalize();
