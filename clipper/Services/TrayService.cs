@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.IO;
 using Forms = System.Windows.Forms;
@@ -18,6 +18,7 @@ namespace clipper.Services
             string iconPath = Path.Combine(
                 AppContext.BaseDirectory,
                 "Assets",
+                "original",
                 "clippy.ico"
             );
 
@@ -31,7 +32,7 @@ namespace clipper.Services
             Forms.ContextMenuStrip menu = new();
 
             Forms.ToolStripMenuItem showItem =
-                new("Показать Скрепыша");
+                new("Показать персонажа");
 
             Forms.ToolStripMenuItem settingsItem = new("Настройки LLM и промпты…");
             settingsItem.Click += (_, _) => SettingsRequested?.Invoke();

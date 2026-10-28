@@ -23,6 +23,8 @@ public sealed class LlmSettings
     public string Language { get; set; } = "Russian";
     public bool ShareWindowContext { get; set; }
     public bool AutomaticReactions { get; set; }
+    public string ArchetypeId { get; set; } = "default";
+    public Dictionary<string, string> CharacterPrompts { get; set; } = CharacterPromptLibrary.Defaults();
     public string SystemPrompt { get; set; } = PromptLibrary.SystemPrompt;
     public Dictionary<SpeechEvent, string> Prompts { get; set; } = new(PromptLibrary.Events);
 
@@ -43,10 +45,17 @@ public sealed class LlmSettings
             if (string.IsNullOrWhiteSpace(value.Model)) value.Model = ModelCatalog.Recommended(provider);
         }
         if (string.IsNullOrWhiteSpace(Language)) Language = "Russian";
-        if (string.IsNullOrWhiteSpace(SystemPrompt)) SystemPrompt = PromptLibrary.SystemPrompt;
+        if (string.IsNullOrWhiteSpace(SystemPrompt) || PromptLibrary.IsLegacyDefault(SystemPrompt, PromptLibrary.LegacySystemPrompt))
+            SystemPrompt = PromptLibrary.SystemPrompt;
+        if (!CharacterPromptLibrary.Contains(ArchetypeId)) ArchetypeId = "default";
+        CharacterPrompts ??= new();
+        foreach (var persona in CharacterPromptLibrary.All)
+            if (!CharacterPrompts.TryGetValue(persona.Id, out var prompt) || string.IsNullOrWhiteSpace(prompt))
+                CharacterPrompts[persona.Id] = persona.Prompt;
         Prompts ??= new();
         foreach (var entry in PromptLibrary.Events)
-            if (!Prompts.TryGetValue(entry.Key, out var value) || string.IsNullOrWhiteSpace(value))
+            if (!Prompts.TryGetValue(entry.Key, out var value) || string.IsNullOrWhiteSpace(value)
+                || PromptLibrary.IsLegacyDefault(value, PromptLibrary.LegacyEvents[entry.Key]))
                 Prompts[entry.Key] = entry.Value;
     }
 }

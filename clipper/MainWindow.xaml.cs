@@ -16,13 +16,17 @@ namespace clipper;
 public partial class MainWindow : Window
 {
     private readonly DispatcherTimer appWatcherTimer;
+    private readonly DispatcherTimer speechTimer;
+    private readonly ArchetypeService archetypeService;
+    private readonly CharacterSpriteService spriteService;
+    private readonly CursorTrackingService cursorTrackingService;
     private readonly ClippyStateService stateService = new();
     private readonly TrayService trayService;
     private readonly BlinkService blinkService;
     private readonly SleepService sleepService = new();
     private readonly ReactionCooldownService cooldownService = new();
-    private readonly SettingsStore settingsStore = new();
-    private readonly HttpClient httpClient = new(new HttpClientHandler { AllowAutoRedirect = false });
+    private readonly SettingsStore settingsStore;
+    private readonly HttpClient httpClient;
     private readonly LlmService llm;
     private LlmSettings settings;
     private SettingsWindow? settingsWindow;
@@ -37,20 +41,34 @@ public partial class MainWindow : Window
     private bool dragging;
     private bool reallyExit;
 
-    public MainWindow()
+    public MainWindow() : this(new SettingsStore(), new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })) { }
+
+    public MainWindow(SettingsStore settingsStore, HttpClient httpClient)
     {
+        this.settingsStore = settingsStore;
+        this.httpClient = httpClient;
         InitializeComponent();
         settings = settingsStore.Load();
+        archetypeService = new ArchetypeService(settings.ArchetypeId);
         llm = new LlmService(httpClient);
         trayService = new TrayService();
         trayService.ShowRequested += ShowFromTray;
         trayService.SettingsRequested += OpenSettings;
         trayService.ExitRequested += ExitFromTray;
-        sleepService.FellAsleep += OnClippyFellAsleep;
-        sleepService.WokeUp += OnClippyWokeUp;
-        blinkService = new BlinkService(ClippyImage);
+        sleepService.IdleReached += OnClippyFellAsleep;
+        sleepService.ActivityDetected += OnUserActivityDetected;
+        spriteService = new CharacterSpriteService(CharacterCanvas, EyesCanvas, ClippyImage);
+        spriteService.SetSprites(archetypeService.Current.Sprites);
+        blinkService = new BlinkService(spriteService.SetBlinking);
+        cursorTrackingService = new CursorTrackingService(CharacterCanvas, spriteService);
         appWatcherTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         appWatcherTimer.Tick += AppWatcherTimer_Tick;
+        speechTimer = new DispatcherTimer { Interval = AnimationService.SpeechAnimationDuration };
+        speechTimer.Tick += (_, _) =>
+        {
+            speechTimer.Stop();
+            if (stateService.CurrentState == ClippyState.Speaking) stateService.SetIdle();
+        };
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -60,9 +78,10 @@ public partial class MainWindow : Window
         blinkService.Start();
         sleepService.Start();
         appWatcherTimer.Start();
-        if (settings.IsConfigured)
-            await GenerateSpeechAsync(SpeechEvent.Greeting);
-        else
+        cursorTrackingService.Start();
+        if (settings.IsConfigured && archetypeService.CanSpeakAutomatically())
+            await GenerateSpeechAsync(SpeechEvent.Greeting, automatic: true);
+        else if (!settings.IsConfigured)
         {
             SetStatus(settingsStore.LoadError ?? "Настройте LLM через меню по правой кнопке.");
             OpenSettings();
@@ -98,13 +117,15 @@ public partial class MainWindow : Window
         SpeechBubble.Visibility = Visibility.Visible;
         AnimationService.React(ClippyTranslate);
         AnimationService.AnimateSpeechBubble(SpeechBubble);
-        stateService.SetIdle();
+        speechTimer.Stop();
+        speechTimer.Start();
     }
 
     private async Task<bool> GenerateSpeechAsync(SpeechEvent speechEvent, bool automatic = false,
         ActiveWindowInfo? window = null)
     {
         if (reallyExit || !IsVisible || settingsWindow != null || stateService.IsSleeping) return false;
+        if (automatic && !archetypeService.CanSpeakAutomatically()) return false;
         if (!settings.IsConfigured)
         {
             if (!automatic) SetStatus("Добавьте API-ключ в настройках LLM.");
@@ -159,15 +180,17 @@ public partial class MainWindow : Window
     {
         if (settingsWindow != null) return;
         CancelSpeech();
+        speechTimer.Stop();
         stateService.SetSleeping();
         blinkService.Stop();
-        ClippyImage.Source = ImageService.Load("clipper_sleep.png");
+        spriteService.SetSleeping(true);
         SpeechBubble.Visibility = Visibility.Collapsed;
     }
 
-    private async void OnClippyWokeUp()
+    private async void OnUserActivityDetected()
     {
         if (!stateService.IsSleeping) return;
+        if (!archetypeService.CanWakeFor(ActiveWindowService.GetActiveWindow())) return;
         WakeCharacter();
         await GenerateSpeechAsync(SpeechEvent.WakeUp, automatic: true);
     }
@@ -175,7 +198,8 @@ public partial class MainWindow : Window
     private void WakeCharacter()
     {
         stateService.SetIdle();
-        ClippyImage.Source = ImageService.Load("clipper_original.png");
+        sleepService.ResetIdleCycle();
+        spriteService.SetSleeping(false);
         blinkService.Start();
     }
 
@@ -185,6 +209,8 @@ public partial class MainWindow : Window
         blinkService.Stop();
         appWatcherTimer.Stop();
         sleepService.Stop();
+        speechTimer.Stop();
+        cursorTrackingService.Stop();
         trayService.Dispose();
         httpClient.Dispose();
     }
@@ -215,7 +241,7 @@ public partial class MainWindow : Window
         var position = System.Windows.Forms.Cursor.Position;
         pressPoint = new Point(position.X, position.Y);
         dragging = false;
-        ClippyImage.CaptureMouse();
+        CharacterView.CaptureMouse();
         e.Handled = true;
     }
 
@@ -227,7 +253,7 @@ public partial class MainWindow : Window
         if (Math.Abs(position.X - start.X) < SystemParameters.MinimumHorizontalDragDistance
             && Math.Abs(position.Y - start.Y) < SystemParameters.MinimumVerticalDragDistance) return;
         dragging = true;
-        ClippyImage.ReleaseMouseCapture();
+        CharacterView.ReleaseMouseCapture();
         try { DragMove(); }
         catch (InvalidOperationException) { }
         pressPoint = null;
@@ -237,7 +263,7 @@ public partial class MainWindow : Window
     {
         bool clicked = pressPoint != null && !dragging;
         pressPoint = null;
-        ClippyImage.ReleaseMouseCapture();
+        CharacterView.ReleaseMouseCapture();
         e.Handled = true;
         if (!clicked) return;
         if (stateService.IsSleeping) WakeCharacter();
@@ -246,17 +272,18 @@ public partial class MainWindow : Window
 
     private async void AppWatcherTimer_Tick(object? sender, EventArgs e)
     {
-        if (!stateService.CanReact || !IsVisible || settingsWindow != null) return;
+        if (!IsVisible || settingsWindow != null) return;
         ActiveWindowInfo window = ActiveWindowService.GetActiveWindow();
         if (ActiveWindowService.IsClipper(window) || string.IsNullOrWhiteSpace(window.ProcessName)) return;
         lastExternalWindow = window;
+        if (!stateService.CanReact || !archetypeService.CanSpeakAutomatically()) return;
         string signature = $"{window.ProcessId}|{window.Title}";
         if (signature == lastWindowSignature) return;
         lastWindowSignature = signature;
         if (!settings.ShareWindowContext || !settings.AutomaticReactions || !settings.IsConfigured) return;
         var now = DateTime.UtcNow;
         if (now - lastAutomaticAt < TimeSpan.FromSeconds(45)) return;
-        if (!cooldownService.CanReact(window.ProcessName, TimeSpan.FromMinutes(2))) return;
+        if (!cooldownService.CanReact(window.ProcessName, archetypeService.ApplyCooldown(TimeSpan.FromMinutes(2)))) return;
         // Limit attempts too, so a provider outage cannot create a request storm.
         lastAutomaticAt = now;
         cooldownService.MarkReacted(window.ProcessName);
@@ -278,9 +305,7 @@ public partial class MainWindow : Window
         sleepService.Start();
         if (!saved || updated == null) return;
         settings = updated;
-        recentLines.Clear();
-        lastWindowSignature = "";
-        lastRequestAt = DateTime.MinValue;
+        ApplyArchetype(settings.ArchetypeId);
         if (settings.IsConfigured) await GenerateSpeechAsync(SpeechEvent.Greeting);
         else SetStatus("Добавьте API-ключ в настройках LLM.");
     }
@@ -302,6 +327,16 @@ public partial class MainWindow : Window
         };
         var settingsItem = new MenuItem { Header = "Настройки LLM и промпты…" };
         settingsItem.Click += (_, _) => OpenSettings();
+        var characters = new MenuItem { Header = "Персонаж" };
+        foreach (var persona in CharacterPromptLibrary.All)
+        {
+            var item = new MenuItem
+            {
+                Header = persona.DisplayName, IsCheckable = true, IsChecked = settings.ArchetypeId == persona.Id
+            };
+            item.Click += async (_, _) => await ChangeArchetypeAsync(persona.Id);
+            characters.Items.Add(item);
+        }
         var resetItem = new MenuItem { Header = "Вернуться в угол" };
         resetItem.Click += (_, _) => MoveToBottomRight();
         var hideItem = new MenuItem { Header = "Спрятаться в трей" };
@@ -311,10 +346,45 @@ public partial class MainWindow : Window
         menu.Items.Add(phraseItem);
         menu.Items.Add(currentWindowItem);
         menu.Items.Add(settingsItem);
+        menu.Items.Add(characters);
         menu.Items.Add(new Separator());
         menu.Items.Add(resetItem);
         menu.Items.Add(hideItem);
         menu.Items.Add(exitItem);
         menu.IsOpen = true;
+    }
+
+    private void ApplyArchetype(string id)
+    {
+        CancelSpeech();
+        speechTimer.Stop();
+        blinkService.Stop();
+        archetypeService.Change(id);
+        spriteService.SetSprites(archetypeService.Current.Sprites);
+        stateService.SetIdle();
+        sleepService.ResetIdleCycle();
+        SpeechBubble.Visibility = Visibility.Collapsed;
+        recentLines.Clear();
+        cooldownService.ResetAll();
+        lastAutomaticAt = lastRequestAt = DateTime.MinValue;
+        lastWindowSignature = "";
+        blinkService.Start();
+    }
+
+    private async Task ChangeArchetypeAsync(string id)
+    {
+        if (settingsWindow != null || settings.ArchetypeId == id) return;
+        // Save a copy first so a persistence error leaves the active character untouched.
+        var next = SettingsStore.Copy(settings);
+        next.ArchetypeId = id;
+        try { settingsStore.Save(next); }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+        {
+            SetStatus("Не удалось сохранить выбранного персонажа.");
+            return;
+        }
+        settings = next;
+        ApplyArchetype(id);
+        await GenerateSpeechAsync(SpeechEvent.Greeting);
     }
 }

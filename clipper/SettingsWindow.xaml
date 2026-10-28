@@ -25,7 +25,7 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <StackPanel Margin="0,0,0,16">
-            <TextBlock Text="Дайте скрепке голос" FontSize="26" FontWeight="SemiBold"/>
+            <TextBlock Text="Дайте персонажу голос" FontSize="26" FontWeight="SemiBold"/>
             <TextBlock Text="Каждая реплика создаётся выбранной LLM." Foreground="#555" Margin="0,6,0,0"/>
         </StackPanel>
         <TabControl Grid.Row="1" Background="White" Padding="12">
@@ -74,14 +74,30 @@
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
+            <TabItem Header="Персонаж">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="12">
+                        <TextBlock Text="Персонаж" FontWeight="SemiBold"/>
+                        <ComboBox x:Name="CharacterBox" DisplayMemberPath="DisplayName" SelectedValuePath="Id"
+                                  SelectionChanged="Character_Changed"/>
+                        <TextBlock x:Name="CharacterBehaviorText" TextWrapping="Wrap" Foreground="#555" Margin="0,0,0,12"/>
+                        <TextBlock Text="Характер и манера речи (промпт для LLM)" FontWeight="SemiBold"/>
+                        <TextBox x:Name="CharacterPromptBox" AcceptsReturn="True" TextWrapping="Wrap"
+                                 Height="260" VerticalScrollBarVisibility="Auto" MaxLength="8000"/>
+                        <Button Content="Восстановить характер персонажа" Click="ResetCharacterPrompt_Click" HorizontalAlignment="Left"/>
+                        <TextBlock Text="У каждого персонажа собственный промпт. Общие инструкции и промпты событий добавляются ко всем персонажам. Выбор применяется после сохранения."
+                                   TextWrapping="Wrap" Foreground="#555" Margin="0,16,0,0"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
             <TabItem Header="Промпты">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="12">
-                        <TextBlock Text="Характер скрепки (системный промпт)" FontWeight="SemiBold"/>
+                        <TextBlock Text="Общие инструкции (системный промпт)" FontWeight="SemiBold"/>
                         <TextBox x:Name="SystemPromptBox" AcceptsReturn="True" TextWrapping="Wrap"
                                  Height="180" VerticalScrollBarVisibility="Auto" MaxLength="8000"/>
                         <StackPanel x:Name="EventPromptPanel"/>
-                        <Button Content="Восстановить стандартные промпты" Click="ResetPrompts_Click" HorizontalAlignment="Left"/>
+                        <Button Content="Восстановить общие промпты" Click="ResetPrompts_Click" HorizontalAlignment="Left"/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

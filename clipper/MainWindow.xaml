@@ -46,20 +46,11 @@
                        Foreground="#555555" TextAlignment="Center"/>
         </Border>
 
-        <Image
-            x:Name="ClippyImage"
-            MouseLeftButtonDown="Clippy_MouseLeftButtonDown"
-            MouseLeftButtonUp="Clippy_MouseLeftButtonUp"
-            MouseMove="Clippy_MouseMove"
-            Source="/Assets/clipper_original.png"
-            Width="240"
-            Height="260"
-            Stretch="Uniform"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Bottom"
-            RenderTransformOrigin="0.5,1">
-
-            <Image.RenderTransform>
+        <Viewbox x:Name="CharacterView" Width="240" Height="260" Stretch="Uniform"
+                 HorizontalAlignment="Center" VerticalAlignment="Bottom" RenderTransformOrigin="0.5,1"
+                 MouseLeftButtonDown="Clippy_MouseLeftButtonDown"
+                 MouseLeftButtonUp="Clippy_MouseLeftButtonUp" MouseMove="Clippy_MouseMove">
+            <Viewbox.RenderTransform>
                 <TransformGroup>
                     <ScaleTransform x:Name="ClippyScale"
                             ScaleX="1"
@@ -71,9 +62,12 @@
                     <TranslateTransform x:Name="ClippyTranslate"
                                 Y="0"/>
                 </TransformGroup>
-            </Image.RenderTransform>
-
-        </Image>
+            </Viewbox.RenderTransform>
+            <Grid x:Name="CharacterCanvas" Width="1254" Height="1254" Background="Transparent">
+                <Canvas x:Name="EyesCanvas" IsHitTestVisible="False"/>
+                <Image x:Name="ClippyImage" Stretch="Fill"/>
+            </Grid>
+        </Viewbox>
 
     </Grid>
 </Window>

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -7,6 +7,9 @@ namespace clipper.Services
 {
     public static class AnimationService
     {
+        public static readonly TimeSpan SpeechAnimationDuration =
+            TimeSpan.FromMilliseconds(250);
+
         public static void StartIdle(
             TranslateTransform translate,
             RotateTransform rotate,
@@ -62,7 +65,7 @@ namespace clipper.Services
             {
                 From = 0.25,
                 To = 1.0,
-                Duration = TimeSpan.FromMilliseconds(250)
+                Duration = SpeechAnimationDuration
             };
 
             bubble.BeginAnimation(

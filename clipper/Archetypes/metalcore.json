@@ -1,0 +1,37 @@
+{
+  "id": "metalcore",
+  "displayName": "Металкорщик",
+  "behavior": {
+    "cooldownMultiplier": 1.0,
+    "clickOnly": false,
+    "wakeTriggers": ["FL64", "FL Studio"]
+  },
+  "sprites": {
+    "idle": "metalcore/metalcore_idle.png",
+    "blink": "metalcore/metalcore_blink.png",
+    "sleep": "metalcore/metalcore_sleep.png",
+    "base": "metalcore/metalcore_base.png",
+    "eyes": {
+      "whites": "metalcore/metalcore_eye_whites.png",
+      "pupils": "metalcore/metalcore_pupils.png",
+      "blink": "metalcore/metalcore_eyes_blink.png",
+      "sleep": "metalcore/metalcore_eyes_sleep.png",
+      "left": {
+        "x": 482, "y": 326, "width": 125, "height": 128,
+        "pupilSize": 48, "maxPupilOffset": 16, "lidHeight": 48,
+        "whites": { "x": 331, "y": 463, "width": 272, "height": 258 },
+        "pupils": { "x": 467, "y": 454, "width": 103, "height": 102 },
+        "blink": { "x": 315, "y": 578, "width": 248, "height": 95 },
+        "sleep": { "x": 312, "y": 542, "width": 249, "height": 122 }
+      },
+      "right": {
+        "x": 697, "y": 404, "width": 128, "height": 116,
+        "pupilSize": 48, "maxPupilOffset": 16, "lidHeight": 48,
+        "whites": { "x": 671, "y": 566, "width": 267, "height": 250 },
+        "pupils": { "x": 704, "y": 465, "width": 103, "height": 103 },
+        "blink": { "x": 691, "y": 578, "width": 247, "height": 95 },
+        "sleep": { "x": 710, "y": 633, "width": 247, "height": 97 }
+      }
+    }
+  }
+}

@@ -29,6 +29,10 @@ internal static class Program
             ModelParameters().GetAwaiter().GetResult();
             FailureContracts().GetAwaiter().GetResult();
             PromptPrivacy();
+            Characters(args.Contains("--render"));
+            CharacterSettingsUi();
+            MainWindowCharacters();
+            SleepCycle();
             SettingsPersistence();
             SettingsUi(args.Contains("--render"));
             ModelListUi();
@@ -387,6 +391,8 @@ internal static class Program
             settings.Providers[LlmProvider.Gemini].ApiKey = "another-fake-secret";
             settings.Providers[LlmProvider.Anthropic].WorkspaceId = "wrkspc_saved";
             settings.Prompts[SpeechEvent.Poked] = "Custom click prompt";
+            settings.ArchetypeId = "goth";
+            settings.CharacterPrompts["goth"] = "A custom gothic persona";
             store.Save(settings);
             Check(!Encoding.UTF8.GetString(File.ReadAllBytes(path)).Contains("test-secret"), "DPAPI file contains no plaintext key");
             var restored = store.Load();
@@ -394,6 +400,8 @@ internal static class Program
                 && restored.Providers[LlmProvider.Gemini].ApiKey == "another-fake-secret"
                 && restored.Providers[LlmProvider.Anthropic].WorkspaceId == "wrkspc_saved"
                 && restored.Prompts[SpeechEvent.Poked] == "Custom click prompt", "Keys and custom prompts survive encrypted reload");
+            Check(restored.ArchetypeId == "goth" && restored.CharacterPrompts["goth"] == "A custom gothic persona",
+                "Selected character and persona survive encrypted reload");
             File.WriteAllText(path, "corrupt");
             Check(!store.Load().IsConfigured && store.LoadError != null, "Corrupt settings recover with actionable status");
             var sparse = new LlmSettings { Providers = new(), Prompts = new(), Provider = (LlmProvider)99 };
@@ -444,6 +452,189 @@ internal static class Program
             Check(stream.Length > 0, "Settings preview rendered");
         }
         window.Close();
+    }
+
+    private static void Characters(bool render)
+    {
+        var archetypes = new ArchetypeService();
+        Check(archetypes.GetAvailableArchetypeIds().Order().SequenceEqual(CharacterPromptLibrary.All.Select(p => p.Id).Order()),
+            "Every upstream character has a personality prompt");
+        var montage = new Grid { Background = System.Windows.Media.Brushes.White };
+        foreach (var _ in CharacterPromptLibrary.All) montage.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(240) });
+        montage.RowDefinitions.Add(new RowDefinition { Height = new GridLength(30) });
+        for (int i = 0; i < 3; i++) montage.RowDefinitions.Add(new RowDefinition { Height = new GridLength(260) });
+        int column = 0;
+        foreach (var persona in CharacterPromptLibrary.All)
+        {
+            archetypes.Change(persona.Id);
+            Check(archetypes.Current.DisplayName == persona.DisplayName, persona.Id + " archetype and prompt identity match");
+            Check(archetypes.CanSpeakAutomatically() == (persona.Id != "goth"), persona.Id + " automatic speech policy");
+            var settings = Configured();
+            settings.ArchetypeId = persona.Id;
+            foreach (var speechEvent in Enum.GetValues<SpeechEvent>())
+            {
+                var prompt = PromptLibrary.Build(settings, speechEvent);
+                Check(prompt.System.Contains(persona.Prompt) && prompt.System.Contains(settings.Language), persona.Id + " personality applies to " + speechEvent);
+            }
+            settings.CharacterPrompts[persona.Id] = "A user-defined voice";
+            Check(PromptLibrary.Build(settings, SpeechEvent.Poked).System.Contains("A user-defined voice"), persona.Id + " custom voice is used");
+            if (!render) ValidateSprites(archetypes.Current);
+            else
+            {
+                var title = new TextBlock { Text = persona.DisplayName, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                Grid.SetColumn(title, column);
+                montage.Children.Add(title);
+                for (int state = 0; state < 3; state++)
+                {
+                    var view = ValidateSprites(archetypes.Current, state);
+                    Grid.SetColumn(view, column);
+                    Grid.SetRow(view, state + 1);
+                    montage.Children.Add(view);
+                }
+            }
+            column++;
+        }
+        archetypes.Change("metalcore");
+        Check(archetypes.CanWakeFor(new ActiveWindowInfo { ProcessName = "FL64" })
+            && !archetypes.CanWakeFor(new ActiveWindowInfo { ProcessName = "notepad" }), "Metalcore retains FL Studio wake trigger");
+        archetypes.Change("gopnique");
+        Check(archetypes.ApplyCooldown(TimeSpan.FromMinutes(2)) == TimeSpan.Zero, "Gopnique retains its cooldown multiplier");
+        var legacy = Configured();
+        legacy.SystemPrompt = PromptLibrary.LegacySystemPrompt.Replace("\n", "\r\n");
+        legacy.Prompts = new(PromptLibrary.LegacyEvents);
+        legacy.CharacterPrompts = new();
+        legacy.Normalize();
+        Check(legacy.SystemPrompt == PromptLibrary.SystemPrompt && legacy.CharacterPrompts.Count == 4
+            && legacy.Prompts[SpeechEvent.Greeting] == PromptLibrary.Events[SpeechEvent.Greeting], "Old default settings migrate to character-aware prompts");
+        legacy.SystemPrompt = "Custom system instructions";
+        legacy.Prompts[SpeechEvent.Greeting] = "Custom greeting";
+        legacy.Normalize();
+        Check(legacy.SystemPrompt == "Custom system instructions" && legacy.Prompts[SpeechEvent.Greeting] == "Custom greeting",
+            "Migration preserves edited system and event prompts");
+        legacy.ArchetypeId = "../../missing";
+        legacy.Normalize();
+        Check(legacy.ArchetypeId == "default", "Invalid saved character falls back to default");
+        if (render)
+        {
+            montage.Measure(new System.Windows.Size(960, 810));
+            montage.Arrange(new Rect(0, 0, 960, 810));
+            montage.UpdateLayout();
+            var bitmap = new RenderTargetBitmap(960, 810, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(montage);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            Directory.CreateDirectory("artifacts");
+            using var stream = File.Create("artifacts/characters-preview.png");
+            encoder.Save(stream);
+        }
+    }
+
+    private static Viewbox ValidateSprites(ArchetypeDefinition archetype, int state = 0)
+    {
+        var canvas = new Grid();
+        var eyes = new Canvas();
+        var image = new System.Windows.Controls.Image { Stretch = Stretch.Fill };
+        canvas.Children.Add(eyes);
+        canvas.Children.Add(image);
+        var sprites = new CharacterSpriteService(canvas, eyes, image);
+        sprites.SetSprites(archetype.Sprites);
+        Check(image.Source != null && eyes.Children.Count == 2 && sprites.CanTrackCursor, archetype.Id + " layered sprites load");
+        sprites.UpdateGaze(new System.Windows.Point(1000, 300));
+        sprites.SetBlinking(true);
+        Check(!sprites.CanTrackCursor, archetype.Id + " blinking suspends gaze tracking");
+        sprites.SetSleeping(true);
+        sprites.SetBlinking(false);
+        Check(!sprites.CanTrackCursor, archetype.Id + " sleeping suspends gaze tracking");
+        sprites.SetSleeping(false);
+        Check(sprites.CanTrackCursor, archetype.Id + " waking restores gaze tracking");
+        if (state == 1) sprites.SetBlinking(true);
+        if (state == 2) sprites.SetSleeping(true);
+        return new Viewbox { Width = 240, Height = 260, Child = canvas };
+    }
+
+    private static void CharacterSettingsUi()
+    {
+        using var client = new HttpClient(new FakeHandler((_, _) => Task.FromResult(Response("{}"))));
+        var original = Configured();
+        var window = new SettingsWindow(original, new SettingsStore(), new LlmService(client));
+        var character = (ComboBox)window.FindName("CharacterBox");
+        var prompt = (TextBox)window.FindName("CharacterPromptBox");
+        Check((string)character.SelectedValue == "default" && prompt.Text == CharacterPromptLibrary.For("default").Prompt,
+            "Character settings default to classic companion");
+        prompt.Text = "Custom classic personality";
+        character.SelectedValue = "goth";
+        Check(prompt.Text == CharacterPromptLibrary.For("goth").Prompt, "Goth selection loads its own prompt");
+        prompt.Text = "Custom gothic personality";
+        character.SelectedValue = "default";
+        Check(prompt.Text == "Custom classic personality", "Character switch preserves unsaved personality edits");
+        character.SelectedValue = "goth";
+        Check(prompt.Text == "Custom gothic personality", "Different character drafts remain independent");
+        Check(original.ArchetypeId == "default" && original.CharacterPrompts["goth"] != prompt.Text, "Canceling character settings leaves saved settings untouched");
+        window.Close();
+    }
+
+    private static void SleepCycle()
+    {
+        TimeSpan idle = TimeSpan.FromMinutes(4);
+        var sleep = new SleepService(() => idle);
+        int sleeps = 0, activity = 0;
+        sleep.IdleReached += () => sleeps++;
+        sleep.ActivityDetected += () => activity++;
+        var tick = typeof(SleepService).GetMethod("Timer_Tick", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        tick.Invoke(sleep, [null, EventArgs.Empty]);
+        tick.Invoke(sleep, [null, EventArgs.Empty]);
+        Check(sleeps == 1, "Idle cycle fires sleep only once");
+        idle = TimeSpan.Zero;
+        tick.Invoke(sleep, [null, EventArgs.Empty]);
+        tick.Invoke(sleep, [null, EventArgs.Empty]);
+        Check(activity == 2, "Activity keeps checking character wake triggers until accepted");
+        sleep.ResetIdleCycle();
+        tick.Invoke(sleep, [null, EventArgs.Empty]);
+        Check(activity == 2, "Accepted wake resets the idle cycle");
+    }
+
+    private static void MainWindowCharacters()
+    {
+        var originalContext = SynchronizationContext.Current;
+        string folder = Path.Combine(Path.GetTempPath(), "ClipperCharacterTests-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(folder, "settings.dat");
+        MainWindow? window = null;
+        try
+        {
+            var store = new SettingsStore(path);
+            var original = Configured();
+            store.Save(original);
+            var client = new HttpClient(new FakeHandler((_, _) => throw new Exception("Hidden character must not call API")));
+            window = new MainWindow(store, client);
+            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var change = typeof(MainWindow).GetMethod("ChangeArchetypeAsync", flags)!;
+            var recent = (Queue<string>)typeof(MainWindow).GetField("recentLines", flags)!.GetValue(window)!;
+            foreach (string id in new[] { "goth", "gopnique", "metalcore", "default" })
+            {
+                using var pending = new CancellationTokenSource();
+                typeof(MainWindow).GetField("speechRequest", flags)!.SetValue(window, pending);
+                recent.Enqueue("Previous character's reply");
+                ((Task)change.Invoke(window, [id])!).GetAwaiter().GetResult();
+                var saved = store.Load();
+                Check(saved.ArchetypeId == id && saved.ActiveProvider.ApiKey == original.ActiveProvider.ApiKey,
+                    id + " menu switch persists character while preserving API credentials");
+                Check(pending.IsCancellationRequested && recent.Count == 0,
+                    id + " switch cancels old speech and clears old character history");
+                Check(((System.Windows.Controls.Image)window.FindName("ClippyImage")).Source != null,
+                    id + " menu switch updates the real main-window sprite");
+            }
+        }
+        finally
+        {
+            if (window != null)
+            {
+                typeof(MainWindow).GetField("reallyExit", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(window, true);
+                window.Close();
+            }
+            if (File.Exists(path)) File.Delete(path);
+            if (Directory.Exists(folder)) Directory.Delete(folder);
+            SynchronizationContext.SetSynchronizationContext(originalContext);
+        }
     }
 
     private static HttpResponseMessage Response(string json, HttpStatusCode status = HttpStatusCode.OK) =>

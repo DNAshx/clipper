@@ -15,6 +15,7 @@ public partial class SettingsWindow : Window
     private readonly LlmService llm;
     private readonly Dictionary<SpeechEvent, TextBox> promptBoxes = new();
     private LlmProvider? displayedProvider;
+    private string? displayedCharacter;
     private bool loadingProvider;
     private bool windowLoaded;
     private CancellationTokenSource? modelRefresh;
@@ -28,6 +29,8 @@ public partial class SettingsWindow : Window
         this.llm = llm;
         draft = SettingsStore.Copy(settings);
         InitializeComponent();
+        CharacterBox.ItemsSource = CharacterPromptLibrary.All;
+        CharacterBox.SelectedValue = draft.ArchetypeId;
         foreach (var speechEvent in Enum.GetValues<SpeechEvent>())
         {
             EventPromptPanel.Children.Add(new TextBlock
@@ -66,6 +69,32 @@ public partial class SettingsWindow : Window
         draft.Providers[provider].ApiKey = KeyBox.Password.Trim();
         draft.Providers[provider].Model = ModelBox.Text.Trim();
         if (provider == LlmProvider.Anthropic) draft.Providers[provider].WorkspaceId = WorkspaceBox.Text.Trim();
+    }
+
+    private void CaptureCharacter()
+    {
+        if (displayedCharacter != null) draft.CharacterPrompts[displayedCharacter] = CharacterPromptBox.Text.Trim();
+    }
+
+    private void Character_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (CharacterBox.SelectedItem is not CharacterPersona persona) return;
+        CaptureCharacter();
+        displayedCharacter = draft.ArchetypeId = persona.Id;
+        CharacterPromptBox.Text = draft.CharacterPrompts[persona.Id];
+        CharacterBehaviorText.Text = persona.Id switch
+        {
+            "goth" => "Готичка не начинает разговор сама. Отвечает на клик и команды меню.",
+            "gopnique" => "Общительный персонаж с более частыми реакциями. Общий лимит API-запросов сохраняется.",
+            "metalcore" => "Автоматически просыпается при активности в FL Studio. Клик по персонажу будит его всегда.",
+            _ => "Дружелюбный Скрепыш с обычной частотой реакций."
+        };
+    }
+
+    private void ResetCharacterPrompt_Click(object sender, RoutedEventArgs e)
+    {
+        if (displayedCharacter != null)
+            CharacterPromptBox.Text = CharacterPromptLibrary.For(displayedCharacter).Prompt;
     }
 
     private void Provider_Changed(object sender, SelectionChangedEventArgs e)
@@ -195,13 +224,15 @@ public partial class SettingsWindow : Window
     private bool ReadDraft()
     {
         CaptureProvider();
+        CaptureCharacter();
         draft.Language = LanguageBox.Text.Trim();
         draft.ShareWindowContext = ContextBox.IsChecked == true;
         draft.AutomaticReactions = AutomaticBox.IsChecked == true;
         draft.SystemPrompt = SystemPromptBox.Text.Trim();
         foreach (var entry in promptBoxes) draft.Prompts[entry.Key] = entry.Value.Text.Trim();
         if (string.IsNullOrWhiteSpace(draft.ActiveProvider.Model) || string.IsNullOrWhiteSpace(draft.Language)
-            || string.IsNullOrWhiteSpace(draft.SystemPrompt) || draft.Prompts.Values.Any(string.IsNullOrWhiteSpace))
+            || string.IsNullOrWhiteSpace(draft.SystemPrompt) || draft.Prompts.Values.Any(string.IsNullOrWhiteSpace)
+            || draft.CharacterPrompts.Values.Any(string.IsNullOrWhiteSpace))
         {
             StatusText.Text = "Укажите модель, язык и заполните все промпты.";
             return false;

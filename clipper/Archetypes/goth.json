@@ -1,0 +1,32 @@
+{
+  "id": "goth",
+  "displayName": "Готичка",
+  "behavior": {
+    "cooldownMultiplier": 1.0,
+    "clickOnly": true,
+    "wakeTriggers": []
+  },
+  "sprites": {
+    "idle": "goth/goth_base.png",
+    "blink": "goth/goth_base.png",
+    "sleep": "goth/goth_base.png",
+    "base": "goth/goth_base.png",
+    "eyes": {
+      "maskBaseEyes": true,
+      "proceduralWhites": true,
+      "proceduralPupils": true,
+      "proceduralLids": true,
+      "lidColor": "#765570",
+      "left": {
+        "x": 430, "y": 395, "width": 192, "height": 112,
+        "pupilSize": 86, "maxPupilOffset": 12, "lidHeight": 112,
+        "aperture": "M 3,12 C 43,1 112,15 190,55 C 182,92 149,108 106,109 C 51,109 11,81 3,12 Z M 18,13 L 42,13 L 42,48 L 18,48 Z M 73,65 L 97,65 L 97,99 L 73,99 Z"
+      },
+      "right": {
+        "x": 706, "y": 457, "width": 196, "height": 113,
+        "pupilSize": 84, "maxPupilOffset": 12, "lidHeight": 113,
+        "aperture": "M 3,15 C 48,0 129,15 190,44 C 186,84 153,105 99,109 C 41,109 2,80 3,15 Z M 124,74 L 152,74 L 152,100 L 124,100 Z"
+      }
+    }
+  }
+}
